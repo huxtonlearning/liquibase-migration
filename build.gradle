@@ -96,7 +96,7 @@ task liquibaseUpdate(type: JavaExec) {
         args += ['--defaultSchemaName', props['defaultSchemaName']];
     }
 
-    args += ['update', project.hasProperty('tag') ? project.property('tag') : '']
+    args += ['update']
 }
 
 // New rollback task
@@ -202,21 +202,23 @@ def findAllModules() {
     return modulesDir.exists() ? modulesDir.listFiles().findAll { it.isDirectory() }.collect { it.name } : []
 }
 
-// Pre-define module-specific update tasks
+// Pre-define module-specific update and rollback tasks
 findAllModules().each { module ->
-    task "liquibaseUpdate_${module}"(type: JavaExec) {
+    def updateTaskName = "liquibaseUpdate_${module}"
+    def rollbackTaskName = "liquibaseRollback_${module}"
+
+    tasks.register(updateTaskName, JavaExec) {
         description = "Run Liquibase Update for module ${module}"
         group = "Liquibase"
 
         classpath = configurations.liquibaseRuntime
         mainClass = 'liquibase.integration.commandline.Main'
-
+        def modulePropsFile = file("modules/${module}/config/${env}/liquibase.properties")
+        def moduleProps = new Properties()
+        if (modulePropsFile.exists()) {
+            modulePropsFile.withInputStream { moduleProps.load(it) }
+        }
         doFirst {
-            def modulePropsFile = file("modules/${module}/config/${env}/liquibase.properties")
-            def moduleProps = new Properties()
-            if (modulePropsFile.exists()) {
-                modulePropsFile.withInputStream { moduleProps.load(it) }
-            }
 
             args = [
                     '--changeLogFile', moduleProps['changeLogFile'] ?: "modules/${module}/db.changelog-master.xml",
@@ -224,19 +226,47 @@ findAllModules().each { module ->
                     '--username', moduleProps['username'] ?: 'postgres',
                     '--password', moduleProps['password'] ?: 'password',
                     '--driver', moduleProps['driver'] ?: 'org.postgresql.Driver',
-
+                    '--logLevel', moduleProps['logLevel'] ?: 'info'
             ]
 
-            if (props['defaultSchemaName']) {
-                args += ['--defaultSchemaName', props['defaultSchemaName']];
+            if (moduleProps['defaultSchemaName']) {
+                args += ['--defaultSchemaName', moduleProps['defaultSchemaName']]
             }
 
-            args += ['--logLevel', moduleProps['logLevel'] ?: 'info',
-                     'update']
+            args += ['update']
+        }
+
+        doLast {
+            // If a tag is provided, tag the database after the update
+            if (project.hasProperty('tag')) {
+                javaexec {
+                    classpath = configurations.liquibaseRuntime
+                    mainClass = 'liquibase.integration.commandline.Main'
+
+
+                    args = [
+                            '--changeLogFile', moduleProps['changeLogFile'] ?: "modules/${module}/db.changelog-master.xml",
+                            '--url', moduleProps['url'] ?: 'jdbc:postgresql://localhost:5432/petdb',
+                            '--username', moduleProps['username'] ?: 'postgres',
+                            '--password', moduleProps['password'] ?: 'password',
+                            '--driver', moduleProps['driver'] ?: 'org.postgresql.Driver',
+                            '--logLevel', moduleProps['logLevel'] ?: 'info',
+
+                    ]
+
+                    if (moduleProps['defaultSchemaName']) {
+                        args += ['--defaultSchemaName', moduleProps['defaultSchemaName']]
+                    }
+
+                    args += ['tag', project.property('tag')]
+
+                    println "✅ Tagged database ${module} with: ${project.property('tag')}"
+                }
+            }
         }
     }
 
-    task "liquibaseRollback_${module}"(type: JavaExec) {
+    tasks.register(rollbackTaskName, JavaExec) {
         description = "Roll back Liquibase changes for module ${module} to a specific tag"
         group = "Liquibase"
 
@@ -260,16 +290,14 @@ findAllModules().each { module ->
                     '--username', moduleProps['username'] ?: 'postgres',
                     '--password', moduleProps['password'] ?: 'password',
                     '--driver', moduleProps['driver'] ?: 'org.postgresql.Driver',
-                    '--logLevel', moduleProps['logLevel'] ?: 'info',
-
+                    '--logLevel', moduleProps['logLevel'] ?: 'info'
             ]
 
-            if (props['defaultSchemaName']) {
-                args += ['--defaultSchemaName', props['defaultSchemaName']];
+            if (moduleProps['defaultSchemaName']) {
+                args += ['--defaultSchemaName', moduleProps['defaultSchemaName']]
             }
 
-            args += ['rollback',
-                     project.property('tag')]
+            args += ['rollback', project.property('tag')]
         }
     }
 }
