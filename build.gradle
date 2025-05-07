@@ -1,0 +1,329 @@
+buildscript {
+    repositories {
+        mavenCentral()
+    }
+    dependencies {
+        classpath 'org.liquibase:liquibase-core:4.20.0'
+        classpath 'org.postgresql:postgresql:42.7.1'
+    }
+}
+
+plugins {
+    id 'java'
+    id 'org.liquibase.gradle' version '2.2.0'
+}
+
+group = 'com.thienhoang'
+version = '1.0'
+
+repositories {
+    mavenCentral()
+}
+
+configurations {
+    liquibaseRuntime.extendsFrom(implementation)
+}
+
+dependencies {
+    // Driver
+    // Postgresql
+    implementation 'org.postgresql:postgresql:42.7.2'
+    liquibaseRuntime 'org.postgresql:postgresql:42.7.2'
+    // Sql Server
+    implementation 'com.microsoft.sqlserver:mssql-jdbc:12.10.0.jre11'
+    liquibaseRuntime 'com.microsoft.sqlserver:mssql-jdbc:12.10.0.jre11'
+    // Oracle
+    implementation 'com.oracle.database.jdbc:ojdbc11:21.9.0.0'
+    liquibaseRuntime 'com.oracle.database.jdbc:ojdbc11:21.9.0.0'
+
+    implementation 'org.liquibase:liquibase-core:4.20.0'
+    liquibaseRuntime 'org.liquibase:liquibase-core:4.20.0'
+    liquibaseRuntime 'info.picocli:picocli:4.7.5'
+    liquibaseRuntime 'org.yaml:snakeyaml:2.0'
+}
+
+// Default to 'pet' module if none specified
+def moduleName = project.hasProperty("module") ? project.property("module") : "pet"
+def env = project.hasProperty("env") ? project.property("env") : "dev"
+
+def propsFile = file("modules/${moduleName}/config/${env}/liquibase.properties")
+if (!propsFile.exists()) {
+    println "Warning: Configuration file not found: ${propsFile}"
+    println "Using default configuration instead."
+}
+
+def props = new Properties()
+if (propsFile.exists()) {
+    propsFile.withInputStream { props.load(it) }
+}
+
+// Using standard Liquibase plugin configuration
+liquibase {
+    activities {
+        main {
+            arguments = [
+                    'changeLogFile': props['changeLogFile'] ?: "modules/${moduleName}/db.changelog-master.xml",
+                    'url'          : props['url'] ?: 'jdbc:postgresql://localhost:5432/petdb',
+                    'username'     : props['username'] ?: 'postgres',
+                    'password'     : props['password'] ?: 'password',
+                    'driver'       : props['driver'] ?: 'org.postgresql.Driver',
+                    'logLevel'     : props['logLevel'] ?: 'info'
+            ]
+        }
+    }
+    runList = 'main'
+}
+
+// Existing update task
+task liquibaseUpdate(type: JavaExec) {
+    description = "Run Liquibase Update using Direct Execution"
+    group = "Liquibase"
+
+    classpath = configurations.liquibaseRuntime
+    mainClass = 'liquibase.integration.commandline.Main'
+
+    args = [
+            '--changeLogFile', props['changeLogFile'] ?: "modules/${moduleName}/db.changelog-master.xml",
+            '--url', props['url'] ?: 'jdbc:postgresql://localhost:5432/petdb',
+            '--username', props['username'] ?: 'postgres',
+            '--password', props['password'] ?: 'password',
+            '--driver', props['driver'] ?: 'org.postgresql.Driver',
+            '--logLevel', props['logLevel'] ?: 'info'
+
+    ]
+
+    if (props['defaultSchemaName']) {
+        args += ['--defaultSchemaName', props['defaultSchemaName']];
+    }
+
+    args += ['update', project.hasProperty('tag') ? project.property('tag') : '']
+}
+
+// New rollback task
+task liquibaseRollback(type: JavaExec) {
+    description = "Roll back Liquibase changes to a specific tag"
+    group = "Liquibase"
+
+    classpath = configurations.liquibaseRuntime
+    mainClass = 'liquibase.integration.commandline.Main'
+
+    doFirst {
+        if (!project.hasProperty('tag')) {
+            throw new GradleException("Tag is required. Use -Ptag=your_tag_name")
+        }
+    }
+
+    args = [
+            '--changeLogFile', props['changeLogFile'] ?: "modules/${moduleName}/db.changelog-master.xml",
+            '--url', props['url'] ?: 'jdbc:postgresql://localhost:5432/petdb',
+            '--username', props['username'] ?: 'postgres',
+            '--password', props['password'] ?: 'password',
+            '--driver', props['driver'] ?: 'org.postgresql.Driver',
+            '--logLevel', props['logLevel'] ?: 'info',
+
+    ]
+
+    if (props['defaultSchemaName']) {
+        args += ['--defaultSchemaName', props['defaultSchemaName']];
+    }
+
+    args += ['rollback',
+             project.hasProperty('tag') ? project.property('tag') : '']
+
+
+}
+
+// Rollback to count
+task liquibaseRollbackCount(type: JavaExec) {
+    description = "Roll back a specific number of Liquibase changes"
+    group = "Liquibase"
+
+    classpath = configurations.liquibaseRuntime
+    mainClass = 'liquibase.integration.commandline.Main'
+
+    doFirst {
+        if (!project.hasProperty('count')) {
+            throw new GradleException("Count is required. Use -Pcount=number_of_changes")
+        }
+    }
+
+    args = [
+            '--changeLogFile', props['changeLogFile'] ?: "modules/${moduleName}/db.changelog-master.xml",
+            '--url', props['url'] ?: 'jdbc:postgresql://localhost:5432/petdb',
+            '--username', props['username'] ?: 'postgres',
+            '--password', props['password'] ?: 'password',
+            '--driver', props['driver'] ?: 'org.postgresql.Driver',
+            '--logLevel', props['logLevel'] ?: 'info',
+
+    ]
+
+    if (props['defaultSchemaName']) {
+        args += ['--defaultSchemaName', props['defaultSchemaName']];
+    }
+
+    args += ['rollbackCount',
+             project.hasProperty('count') ? project.property('count') : '1']
+}
+
+// Rollback to date
+task liquibaseRollbackDate(type: JavaExec) {
+    description = "Roll back Liquibase changes to a specific date"
+    group = "Liquibase"
+
+    classpath = configurations.liquibaseRuntime
+    mainClass = 'liquibase.integration.commandline.Main'
+
+    doFirst {
+        if (!project.hasProperty('date')) {
+            throw new GradleException("Date is required. Use -Pdate=yyyy-MM-dd'T'HH:mm:ss")
+        }
+    }
+
+    args = [
+            '--changeLogFile', props['changeLogFile'] ?: "modules/${moduleName}/db.changelog-master.xml",
+            '--url', props['url'] ?: 'jdbc:postgresql://localhost:5432/petdb',
+            '--username', props['username'] ?: 'postgres',
+            '--password', props['password'] ?: 'password',
+            '--driver', props['driver'] ?: 'org.postgresql.Driver',
+            '--logLevel', props['logLevel'] ?: 'info'
+    ]
+
+    if (props['defaultSchemaName']) {
+        args += ['--defaultSchemaName', props['defaultSchemaName']];
+    }
+
+    args += ['rollbackDate',
+             project.hasProperty('date') ? project.property('date') : '']
+}
+
+// Find all modules and create a helper method
+def findAllModules() {
+    def modulesDir = file('modules')
+    return modulesDir.exists() ? modulesDir.listFiles().findAll { it.isDirectory() }.collect { it.name } : []
+}
+
+// Pre-define module-specific update tasks
+findAllModules().each { module ->
+    task "liquibaseUpdate_${module}"(type: JavaExec) {
+        description = "Run Liquibase Update for module ${module}"
+        group = "Liquibase"
+
+        classpath = configurations.liquibaseRuntime
+        mainClass = 'liquibase.integration.commandline.Main'
+
+        doFirst {
+            def modulePropsFile = file("modules/${module}/config/${env}/liquibase.properties")
+            def moduleProps = new Properties()
+            if (modulePropsFile.exists()) {
+                modulePropsFile.withInputStream { moduleProps.load(it) }
+            }
+
+            args = [
+                    '--changeLogFile', moduleProps['changeLogFile'] ?: "modules/${module}/db.changelog-master.xml",
+                    '--url', moduleProps['url'] ?: 'jdbc:postgresql://localhost:5432/petdb',
+                    '--username', moduleProps['username'] ?: 'postgres',
+                    '--password', moduleProps['password'] ?: 'password',
+                    '--driver', moduleProps['driver'] ?: 'org.postgresql.Driver',
+
+            ]
+
+            if (props['defaultSchemaName']) {
+                args += ['--defaultSchemaName', props['defaultSchemaName']];
+            }
+
+            args += ['--logLevel', moduleProps['logLevel'] ?: 'info',
+                     'update']
+        }
+    }
+
+    task "liquibaseRollback_${module}"(type: JavaExec) {
+        description = "Roll back Liquibase changes for module ${module} to a specific tag"
+        group = "Liquibase"
+
+        classpath = configurations.liquibaseRuntime
+        mainClass = 'liquibase.integration.commandline.Main'
+
+        doFirst {
+            if (!project.hasProperty('tag')) {
+                throw new GradleException("Tag is required. Use -Ptag=your_tag_name")
+            }
+
+            def modulePropsFile = file("modules/${module}/config/${env}/liquibase.properties")
+            def moduleProps = new Properties()
+            if (modulePropsFile.exists()) {
+                modulePropsFile.withInputStream { moduleProps.load(it) }
+            }
+
+            args = [
+                    '--changeLogFile', moduleProps['changeLogFile'] ?: "modules/${module}/db.changelog-master.xml",
+                    '--url', moduleProps['url'] ?: 'jdbc:postgresql://localhost:5432/petdb',
+                    '--username', moduleProps['username'] ?: 'postgres',
+                    '--password', moduleProps['password'] ?: 'password',
+                    '--driver', moduleProps['driver'] ?: 'org.postgresql.Driver',
+                    '--logLevel', moduleProps['logLevel'] ?: 'info',
+
+            ]
+
+            if (props['defaultSchemaName']) {
+                args += ['--defaultSchemaName', props['defaultSchemaName']];
+            }
+
+            args += ['rollback',
+                     project.property('tag')]
+        }
+    }
+}
+
+// Update all modules task - depends on the individual module tasks
+task liquibaseUpdateAll {
+    description = "Run Liquibase Update on all modules"
+    group = "Liquibase"
+
+    def modules = findAllModules()
+
+    doFirst {
+        println "Found modules: ${modules}"
+    }
+
+    // Add dependencies on pre-defined module tasks
+    modules.each { module ->
+        dependsOn "liquibaseUpdate_${module}"
+    }
+}
+
+// Rollback all modules task - depends on the individual module tasks
+task rollbackAllModules {
+    description = "Roll back all modules to a specific tag"
+    group = "Liquibase"
+
+    def modules = findAllModules()
+
+    doFirst {
+        if (!project.hasProperty('tag')) {
+            throw new GradleException("Tag is required. Use -Ptag=your_tag_name")
+        }
+
+        println "Found modules: ${modules}"
+        println "Rolling back all modules to tag: ${project.property('tag')}"
+    }
+
+    // Add dependencies on pre-defined module tasks
+    modules.each { module ->
+        dependsOn "liquibaseRollback_${module}"
+    }
+}
+
+// Debug task to print all available tasks
+task printLiquibaseTasks {
+    doLast {
+        println "Available Liquibase tasks:"
+        tasks.findAll { task -> task.group == 'Liquibase' }.each { task ->
+            println "- ${task.name}: ${task.description ?: 'No description'}"
+        }
+
+        println "\nAvailable modules:"
+        findAllModules().each { module ->
+            println "- ${module}"
+        }
+    }
+}
